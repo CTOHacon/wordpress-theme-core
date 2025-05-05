@@ -1,0 +1,24 @@
+{
+    "name": "hacon/theme-core",
+    "description": "A set of core features for a Hacon wordpress themes.",
+    "type": "library",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "Hacon CTO",
+            "email": "cto.hacon@gmail.com"
+        }
+    ],
+    "require": {},
+    "autoload": {
+        "psr-4": {
+            "Hacon\\ThemeCore\\": "src/"
+        },
+        "files": [
+            "src/load-functions.php"
+        ]
+    },
+    "minimum-stability": "RC",
+    "prefer-stable": true,
+    "version": "1.0.0"
+}
