@@ -2,7 +2,7 @@
 /**
  * Returns the path to the file in the theme directory.
  *
- * @param string $pattern File pattern (for example, "source/components/header.php")
+ * @param string $pattern File pattern (for example, "source/components/header-*.php")
  * @return string Path to the file
  */
 function getThemeFilePath($pattern)

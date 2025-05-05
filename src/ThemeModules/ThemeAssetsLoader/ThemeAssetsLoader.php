@@ -4,18 +4,12 @@ namespace Hacon\ThemeCore\ThemeModules\ThemeAssetsLoader;
 use Hacon\ThemeCore\ThemeModules\ThemeModule;
 
 /**
- * Theme Assets Handler class
- * 
- * Default config keys:
- * - js: array of JavaScript files to load on the frontend
- * - lazyJs: array of JavaScript files to load lazily (default: [])
- * - adminJs: array of JavaScript files to load in admin area
- * - css: array of CSS files to load on the frontend
- * - adminCss: array of CSS files to load in admin area
- * - inlineHeadJs: array of JavaScript files to include inline in the head (default: [])
- * - inlineFooterJs: array of JavaScript files to include inline in the footer (default: [])
+ * ThemeAssetsLoader provides granular methods to register and enqueue theme asset groups (CSS/JS) for different WordPress contexts.
  *
- * @param array $config Configuration array with assets
+ * Usage:
+ *   - Call the relevant method (e.g. enqueFrontendCSS) and pass an array of asset paths (relative to the theme root).
+ *   - Each method registers/enqueues assets for its specific context (frontend, admin, block editor, inline, lazy, etc).
+ *   - Use disableDefaultWPAssetsForFrontend to remove default WordPress frontend assets, with optional exclusions.
  */
 class ThemeAssetsLoader extends ThemeModule
 {
@@ -24,7 +18,7 @@ class ThemeAssetsLoader extends ThemeModule
     /**
      * ThemeAssetsLoader constructor.
      * 
-     * @param array $config - Configuration for the assets loader
+     * @param array $config Configuration for the assets loader
      * @throws \Exception
      */
     protected function __construct(array $config = [])
@@ -34,140 +28,214 @@ class ThemeAssetsLoader extends ThemeModule
         if (!is_array($this->config)) {
             throw new \Exception('Invalid config provided for ThemeAssetsLoader');
         }
-        if (!array_key_exists('js', $this->config)) {
-            throw new \Exception('Invalid config provided for ThemeAssetsLoader. Missing "js" key');
-        }
-        if (!array_key_exists('lazyJs', $this->config)) {
-            $this->config['lazyJs'] = [];
-        }
-        if (!array_key_exists('inlineHeadJs', $this->config)) {
-            $this->config['inlineHeadJs'] = [];
-        }
-        if (!array_key_exists('inlineFooterJs', $this->config)) {
-            $this->config['inlineFooterJs'] = [];
-        }
-        if (!array_key_exists('adminJs', $this->config)) {
-            throw new \Exception('Invalid config provided for ThemeAssetsLoader. Missing "adminJs" key');
-        }
-        if (!array_key_exists('css', $this->config)) {
-            throw new \Exception('Invalid config provided for ThemeAssetsLoader. Missing "css" key');
-        }
-        if (!array_key_exists('adminCss', $this->config)) {
-            throw new \Exception('Invalid config provided for ThemeAssetsLoader. Missing "adminCss" key');
+    }
+
+    /**
+     * Initialize asset loading by processing the config array.
+     * Each config key should match a method name; the value is passed as arguments.
+     * If the method has one argument, the value is passed as is.
+     * If the method has multiple arguments, the value is unpacked as arguments.
+     */
+    public function init()
+    {
+        foreach ($this->config as $method => $value) {
+            if (method_exists($this, $method) && is_callable([
+                $this,
+                $method
+            ])) {
+                $ref    = new \ReflectionMethod($this, $method);
+                $params = $ref->getParameters();
+                if (count($params) === 1) {
+                    $this->$method($value);
+                } elseif (is_array($value)) {
+                    $this->$method(...$value);
+                } else {
+                    // If not an array but multiple params expected, wrap in array
+                    $this->$method($value);
+                }
+            }
         }
     }
 
     /**
-     * Disable all default WordPress frontend assets.
+     * Removes all default WordPress frontend CSS/JS assets except those matching any pattern in $exclude.
+     * Useful for full theme control over loaded assets.
+     *
+     * @param array $exclude Array of asset handle patterns to keep (e.g. ['my-handle*', 'jquery'])
      */
-    public function disableDefaultAssets()
+    public function disableDefaultWPAssetsForFrontend(array $exclude = [])
     {
-        $bypass = [
-            'wp-block-library',
-        ];
-
-        // Skip for logged in users.
         if (is_user_logged_in()) {
             return;
         }
-
-        // Only run on the frontend.
         if (!is_admin()) {
             global $wp_styles;
-
             $deque_styles = [];
-            foreach ($wp_styles->queue as $handle) :
-                // Skip the styles that are in the bypass list.
-                if (in_array($handle, $bypass)) {
-                    continue;
+            foreach ($wp_styles->queue as $handle) {
+                $skip = false;
+                foreach ($exclude as $pattern) {
+                    if (fnmatch($pattern, $handle)) {
+                        $skip = true;
+                        break;
+                    }
                 }
-
+                if ($skip)
+                    continue;
                 $deque_styles[] = $handle;
-            endforeach;
-
-            wp_dequeue_style($deque_styles);
-
+            }
+            foreach ($deque_styles as $handle) {
+                wp_dequeue_style($handle);
+            }
             global $wp_scripts;
             if (isset($wp_scripts) && is_object($wp_scripts) && property_exists($wp_scripts, 'queue')) {
                 $deque_scripts = [];
-                foreach ($wp_scripts->queue as $handle) :
+                foreach ($wp_scripts->queue as $handle) {
+                    $skip = false;
+                    foreach ($exclude as $pattern) {
+                        if (fnmatch($pattern, $handle)) {
+                            $skip = true;
+                            break;
+                        }
+                    }
+                    if ($skip)
+                        continue;
                     $deque_scripts[] = $handle;
-                endforeach;
-                wp_dequeue_script($deque_scripts);
+                }
+                foreach ($deque_scripts as $handle) {
+                    wp_dequeue_script($handle);
+                }
             }
-
             remove_action('wp_print_styles', 'print_emoji_styles');
         }
     }
 
     /**
-     * Enqueue scripts and styles based on configuration.
+     * Enqueue CSS files for the public frontend (outside admin and block editor).
+     *
+     * @param array $paths Array of CSS file paths relative to the theme root
      */
-    public function enqueueAssets()
+    public function enqueFrontendCSS(array $paths)
     {
-        $jsAssets  = $this->config['js'];
-        $cssAssets = $this->config['css'];
-
-        foreach ($jsAssets as $jsAsset) {
-            wp_enqueue_script("wp_theme-$jsAsset", getThemeFileUri($jsAsset), [], null, true);
-        }
-
-        foreach ($cssAssets as $cssAsset) {
-            $cssUri = getThemeFileUri($cssAsset);
-            wp_enqueue_style("wp_theme-$cssAsset", $cssUri);
-        }
-    }
-
-    /**
-     * Modify the output of enqueued CSS to preload them.
-     */
-    public function modifyStyleLoaderTags($html, $handle, $href, $media, $prefix = 'wp_theme-')
-    {
-        // Target only our theme's CSS handles.
-        if (strpos($handle, $prefix) === 0) {
-            $html = "<link rel='preload' href='$href' as='style' onload=\"this.onload=null;this.rel='stylesheet'\" media='$media' />";
-        }
-        return $html;
-    }
-
-    /**
-     * Enqueue admin scripts and styles.
-     */
-    public function enqueueAdminAssets()
-    {
-        $adminJsAssets  = $this->config['adminJs'];
-        $adminCssAssets = $this->config['adminCss'];
-
-        foreach ($adminJsAssets as $jsAsset) {
-            wp_enqueue_script("wp_theme-$jsAsset", getThemeFileUri($jsAsset), [], null, true);
-        }
-
-        foreach ($adminCssAssets as $cssAsset) {
+        foreach ($paths as $cssAsset) {
             wp_enqueue_style("wp_theme-$cssAsset", getThemeFileUri($cssAsset));
         }
     }
 
     /**
-     * Add Editor styles for the block editor.
+     * Enqueue CSS files for the WordPress admin area only.
+     *
+     * @param array $paths Array of CSS file paths relative to the theme root
      */
-    public function addEditorStyles()
+    public function enqueAdminCSS(array $paths)
     {
-        $editorCssAssets = $this->config['editorCss'];
+        add_action('admin_enqueue_scripts', function () use ($paths) {
+            foreach ($paths as $cssAsset) {
+                wp_enqueue_style("wp_theme-$cssAsset", getThemeFileUri($cssAsset));
+            }
+        });
+    }
 
-        foreach ($editorCssAssets as $cssAsset) {
-            wp_enqueue_style("wp_theme-$cssAsset", getThemeFileUri($cssAsset), [], null, 'all');
+    /**
+     * Enqueue CSS files for the block editor (Gutenberg) in both frontend and backend.
+     *
+     * @param array $paths Array of CSS file paths relative to the theme root
+     */
+    public function enqueBlockCSS(array $paths)
+    {
+        add_action('enqueue_block_assets', function () use ($paths) {
+            foreach ($paths as $cssAsset) {
+                wp_enqueue_style("wp_theme-$cssAsset", getThemeFileUri($cssAsset));
+            }
+        });
+    }
+
+    /**
+     * Enqueue JS files for the public frontend (outside admin and block editor).
+     *
+     * @param array $paths Array of JS file paths relative to the theme root
+     */
+    public function enqueFrontendJS(array $paths)
+    {
+        foreach ($paths as $jsAsset) {
+            wp_enqueue_script("wp_theme-$jsAsset", getThemeFileUri($jsAsset), [], null, true);
         }
     }
 
     /**
-     * Insert inline JavaScript in the head.
+     * Enqueue JS files for the WordPress admin area only.
+     *
+     * @param array $paths Array of JS file paths relative to the theme root
      */
-    public function insertInlineHeadJs()
+    public function enqueAdminJS(array $paths)
     {
-        $inlineHeadJsFiles = $this->config['inlineHeadJs'];
+        add_action('admin_enqueue_scripts', function () use ($paths) {
+            foreach ($paths as $jsAsset) {
+                wp_enqueue_script("wp_theme-$jsAsset", getThemeFileUri($jsAsset), [], null, true);
+            }
+        });
+    }
 
-        if (!empty($inlineHeadJsFiles)) {
-            foreach ($inlineHeadJsFiles as $jsFile) {
+    /**
+     * Enqueue JS files for the block editor (Gutenberg) in both frontend and backend.
+     *
+     * @param array $paths Array of JS file paths relative to the theme root
+     */
+    public function enqueBlockJS(array $paths)
+    {
+        add_action('enqueue_block_assets', function () use ($paths) {
+            foreach ($paths as $jsAsset) {
+                wp_enqueue_script("wp_theme-$jsAsset", getThemeFileUri($jsAsset), [], null, true);
+            }
+        });
+    }
+
+    /**
+     * Output inline CSS in the <head> for the public frontend.
+     *
+     * @param array $paths Array of CSS file paths relative to the theme root
+     */
+    public function enqueHeadInlineCSS(array $paths)
+    {
+        add_action('wp_head', function () use ($paths) {
+            foreach ($paths as $cssFile) {
+                $cssFilePath = getThemeFilePath($cssFile);
+                if (file_exists($cssFilePath)) {
+                    echo '<style>';
+                    echo file_get_contents($cssFilePath);
+                    echo '</style>';
+                }
+            }
+        });
+    }
+
+    /**
+     * Output inline CSS in the <footer> for the public frontend.
+     *
+     * @param array $paths Array of CSS file paths relative to the theme root
+     */
+    public function enqueFooterInlineCSS(array $paths)
+    {
+        add_action('wp_footer', function () use ($paths) {
+            foreach ($paths as $cssFile) {
+                $cssFilePath = getThemeFilePath($cssFile);
+                if (file_exists($cssFilePath)) {
+                    echo '<style>';
+                    echo file_get_contents($cssFilePath);
+                    echo '</style>';
+                }
+            }
+        });
+    }
+
+    /**
+     * Output inline JS in the <head> for the public frontend.
+     *
+     * @param array $paths Array of JS file paths relative to the theme root
+     */
+    public function enqueHeadInlineJS(array $paths)
+    {
+        add_action('wp_head', function () use ($paths) {
+            foreach ($paths as $jsFile) {
                 $jsFilePath = getThemeFilePath($jsFile);
                 if (file_exists($jsFilePath)) {
                     echo '<script type="module">';
@@ -175,130 +243,91 @@ class ThemeAssetsLoader extends ThemeModule
                     echo '</script>';
                 }
             }
-        }
+        });
     }
 
     /**
-     * Insert inline JavaScript in the footer.
+     * Output inline JS in the <footer> for the public frontend.
+     *
+     * @param array $paths Array of JS file paths relative to the theme root
      */
-    public function insertInlineFooterJs()
+    public function enqueFooterInlineJS(array $paths)
     {
-        $inlineFooterJsFiles = $this->config['inlineFooterJs'];
-
-        if (!empty($inlineFooterJsFiles)) {
-            foreach ($inlineFooterJsFiles as $jsFile) {
-                $jsFilePath = get_template_directory() . '/' . $jsFile;
+        add_action('wp_footer', function () use ($paths) {
+            foreach ($paths as $jsFile) {
+                $jsFilePath = getThemeFilePath($jsFile);
                 if (file_exists($jsFilePath)) {
                     echo '<script type="module">';
                     echo file_get_contents($jsFilePath);
                     echo '</script>';
                 }
             }
-        }
+        }, 5);
     }
 
     /**
-     * Enqueue lazy load scripts.
+     * Output inline JS for the block editor (Gutenberg) in both frontend and backend.
+     *
+     * @param array $paths Array of JS file paths relative to the theme root
      */
-    public function enqueueLazyJs()
+    public function enqueBlockJSInline(array $paths)
     {
-        ?>
-        <script>
-            var loaded = false;
-
-            function loadLazyScripts(srcList)
-            {
-                if (loaded) return;
-                console.log('Load scripts!');
-                srcList.forEach(function (src)
-                {
-                    var script = document.createElement('script');
-                    script.src = src;
-                    script.type = 'module'
-                    script.defer = true;
-                    document.body.appendChild(script);
-                });
-                loaded = true;
+        add_action('enqueue_block_assets', function () use ($paths) {
+            foreach ($paths as $jsFile) {
+                $jsFilePath = getThemeFilePath($jsFile);
+                if (file_exists($jsFilePath)) {
+                    echo '<script type="module">';
+                    echo file_get_contents($jsFilePath);
+                    echo '</script>';
+                }
             }
-            ["click", "scroll", "keypress", "mousemove", "touchmove", "touchstart"].forEach(function (event)
-            {
-                window.addEventListener(event, function ()
-                {
-                    loadLazyScripts([
-                        <?php
-                        $lazyloadJsAssets = $this->config['lazyJs'];
-                        foreach ($lazyloadJsAssets as $script) {
-                            $sourceBuildFileUri = getThemeFileUri($script);
-                            if ($sourceBuildFileUri) {
-                                echo "'{$sourceBuildFileUri}',";
-                            } else {
-                                echo "'{$script}',";
-                            }
-                        }
-                        ?>
-                    ]);
-                }, { once: true });
-            });
-        </script>
-        <?php
+        });
     }
 
-    public function init()
+    /**
+     * Enqueue JS files to be lazy-loaded on the frontend (loaded after user interaction).
+     *
+     * @param array $paths Array of JS file paths relative to the theme root
+     */
+    public function enqueLazyLoadedJS(array $paths)
     {
-        /**
-         * Disable default WP assets
-         */
-        add_action('wp_enqueue_scripts', function () {
-            $this->disableDefaultAssets();
-        }, 100);
-
-        /**
-         * Enqueue theme assets for front-end
-         */
-        add_action('wp_enqueue_scripts', function () {
-            $this->enqueueAssets();
-        }, 101);
-
-        /**
-         * Modify style loader tags to add preload attributes
-         */
-        add_filter('style_loader_tag', function () {
-            return $this->modifyStyleLoaderTags(...func_get_args());
-        }, 10, 4);
-
-        /**
-         * Enqueue assets for admin side only
-         */
-        add_action('admin_enqueue_scripts', function () {
-            $this->enqueueAdminAssets();
-        });
-
-        add_action('enqueue_block_assets', function () {
-            if (!is_admin()) {
-                return;
-            }
-            $this->addEditorStyles();
-        });
-
-        /**
-         * Insert inline JavaScript in the head
-         */
-        add_action('wp_head', function () {
-            $this->insertInlineHeadJs();
-        });
-
-        /**
-         * Insert inline JavaScript in the footer
-         */
-        add_action('wp_footer', function () {
-            $this->insertInlineFooterJs();
-        }, 5);
-
-        /**
-         * Add script to lazy load some js files
-         */
-        add_action('wp_footer', function () {
-            $this->enqueueLazyJs();
+        add_action('wp_footer', function () use ($paths) {
+            ?>
+            <script>
+                var loaded = false;
+                function loadLazyScripts(srcList)
+                {
+                    if (loaded) return;
+                    srcList.forEach(function (src)
+                    {
+                        var script = document.createElement('script');
+                        script.src = src;
+                        script.type = 'module';
+                        script.defer = true;
+                        document.body.appendChild(script);
+                    });
+                    loaded = true;
+                }
+                ["click", "scroll", "keypress", "mousemove", "touchmove", "touchstart"].forEach(function (event)
+                {
+                    window.addEventListener(event, function ()
+                    {
+                        loadLazyScripts([
+                            <?php
+                            foreach ($paths as $script) {
+                                $sourceBuildFileUri = getThemeFileUri($script);
+                                if ($sourceBuildFileUri) {
+                                    echo "'{$sourceBuildFileUri}',";
+                                } else {
+                                    echo "'{$script}',";
+                                }
+                            }
+                            ?>
+                        ]);
+                    }, { once: true });
+                });
+            </script>
+            <?php
         });
     }
 
