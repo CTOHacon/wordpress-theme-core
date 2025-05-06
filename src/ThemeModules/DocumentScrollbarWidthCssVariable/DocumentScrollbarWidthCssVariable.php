@@ -14,8 +14,15 @@ class DocumentScrollbarWidthCssVariable extends ThemeModule
             {
                 document.documentElement.style.setProperty('--scrollbar-width', (window.innerWidth - document.documentElement.offsetWidth) + 'px');
             }
+            // Set immediately on script load
             setScrollbarWidth();
-            document.addEventListener('resize', setScrollbarWidth);
+            // Also set as soon as DOM is ready (in case of layout shifts)
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', setScrollbarWidth);
+            } else {
+                setScrollbarWidth();
+            }
+            window.addEventListener('resize', setScrollbarWidth);
         </script>
         <?php
         return ob_get_clean();
