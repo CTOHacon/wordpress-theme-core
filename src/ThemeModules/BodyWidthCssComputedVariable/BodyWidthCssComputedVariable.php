@@ -9,7 +9,7 @@ class BodyWidthCssComputedVariable extends ThemeModule
 
     protected function __construct(array $config)
     {
-        $this->cssVariableName = $config['cssVariableName'];
+        $this->cssVariableName = $config['cssVariableName'] ?? 'body-width';
     }
 
     public function getFrontendScripts()
