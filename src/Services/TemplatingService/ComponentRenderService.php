@@ -92,8 +92,15 @@ class ComponentRenderService
             return assembleHtmlAttributes($htmlAttributes, ...$attributes);
         };
 
-        $componentBase = path_join(get_template_directory(), self::$domains[$this->componentDomain]);
-        include path_join($componentBase, "$component.php");
+        // Locate component file via glob pattern using helper
+        $componentFileName = $component . '.php';
+        $pattern           = self::$domains[$this->componentDomain] . '/**/' . $componentFileName;
+        $componentPath     = getThemeFilePath($pattern);
+        if (!$componentPath || !file_exists($componentPath)) {
+            throw new \RuntimeException("Component file '{$componentFileName}' not found in domain '{$this->componentDomain}'");
+        }
+        // Include the located component file
+        include $componentPath;
     }
 
 }

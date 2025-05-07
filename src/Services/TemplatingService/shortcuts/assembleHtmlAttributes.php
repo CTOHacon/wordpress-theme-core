@@ -9,7 +9,7 @@ use Hacon\ThemeCore\Services\TemplatingService\HtmlAttributesService;
  * @return string Строка HTML-атрибутов
  */
 /**
- * Shorthand for HtmlAttributesProcessor::assemble()
+ * Shorthand for HtmlAttributesService::assemble()
  */
 function assembleHtmlAttributes(...$attributeArrays): string
 {

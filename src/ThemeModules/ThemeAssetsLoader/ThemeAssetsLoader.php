@@ -150,6 +150,28 @@ class ThemeAssetsLoader extends ThemeModule
     }
 
     /**
+     * Enqueue CSS files for the Gutenberg editor in all contexts (editor frame, pattern edit, preview).
+     *
+     * @param array $paths Array of CSS file paths relative to the theme root
+     */
+    public function enqueEditorCSS(array $paths)
+    {
+        // Editor assets in the backend post/block editor
+        add_action('enqueue_block_editor_assets', function () use ($paths) {
+            foreach ($paths as $cssAsset) {
+                wp_enqueue_style("wp_theme-editor-{$cssAsset}", getThemeFileUri($cssAsset));
+            }
+        });
+
+        // Block styles in previews and block pattern edit contexts
+        add_action('enqueue_block_assets', function () use ($paths) {
+            foreach ($paths as $cssAsset) {
+                wp_enqueue_style("wp_theme-editor-{$cssAsset}", getThemeFileUri($cssAsset));
+            }
+        });
+    }
+
+    /**
      * Enqueue JS files for the public frontend (outside admin and block editor).
      *
      * @param array $paths Array of JS file paths relative to the theme root

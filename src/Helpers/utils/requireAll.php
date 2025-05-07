@@ -5,73 +5,59 @@
  * @param string ...$paths List of folders/files to include. The last argument can be a glob pattern.
  * @return int Number of files included
  */
+
+use Hacon\ThemeCore\Helpers\utils\PatternScanner;
+use Hacon\ThemeCore\Services\PathPatternCacheManager\PathPatternCacheManager;
+
 function requireAll(string ...$paths): int
 {
     $includedCount = 0;
+    // Helper: isFilePath
 
-    foreach ($paths as $path) {
-        if (isFilePath($path)) {
-            require_once get_template_directory() . "/$path";
-            $includedCount++;
-            continue;
-        }
+    $isFilePath = static fn(string $path): bool => strpos($path, '.') !== false && strpos($path, '*') === false;
 
-        $fullPath = get_template_directory() . "/$path";
-        $files    = glob($fullPath) ?: [];
+    // Helper: getRootName
+    $getRootName = static fn(string $filename): string => ($dotPos = strpos($filename, '.')) !== false ? substr($filename, 0, $dotPos) : $filename;
+    // Helper: sortFilesByNameStructure
 
-        if (empty($files)) {
-            continue;
-        }
-
-        $sortedFiles = sortFilesByNameStructure($files);
-
-        foreach ($sortedFiles as $file) {
-            require_once $file;
-            $includedCount++;
-        }
-    }
-
-    return $includedCount;
-}
-
-/**
- * Determines if a path refers to a file (contains a dot).
- *
- * @param string $path Path to check
- * @return bool True if the path looks like a file path
- */
-function isFilePath(string $path): bool
-{
-    return strpos($path, '.') !== false && strpos($path, '*') === false;
-}
-
-/**
- * Sorts files by their name structure—first by dot count, then by root name.
- * 
- * @param array $files Array of file paths to sort
- * @return array Sorted array of file paths
- */
-function sortFilesByNameStructure(array $files): array
-{
-    usort(
+    $sortFilesByNameStructure = static fn(array $files) => (usort(
         $files,
         fn(string $a, string $b): int =>
         ($dotsA = substr_count(basename($a), '.')) !== ($dotsB = substr_count(basename($b), '.'))
         ? $dotsA <=> $dotsB
-        : getRootName(basename($a)) <=> getRootName(basename($b))
-    );
+        : $getRootName(basename($a)) <=> $getRootName(basename($b))
+    ) ? $files : $files);
 
-    return $files;
-}
-
-/**
- * Extracts the root name from a filename (part before the first dot).
- *
- * @param string $filename The filename
- * @return string Root name
- */
-function getRootName(string $filename): string
-{
-    $dotPos = strpos($filename, '.');
-    return $dotPos !== false ? substr($filename, 0, $dotPos) : $filename;
+    foreach ($paths as $path) {
+        // 1) Wildcard import
+        if (strpos($path, '*') !== false) {
+            if (PathPatternCacheManager::isActive()) {
+                $files = PathPatternCacheManager::getPaths($path);
+            } else {
+                $files = PatternScanner::scan($path);
+            }
+            foreach ($files as $filePath) {
+                require_once $filePath;
+                $includedCount++;
+            }
+            continue;
+        }
+        // 2) Single file path
+        if ($isFilePath($path)) {
+            require_once get_template_directory() . "/$path";
+            $includedCount++;
+            continue;
+        }
+        // 3) Directory or glob
+        $fullPath = get_template_directory() . "/$path";
+        $files    = glob($fullPath) ?: [];
+        if (!empty($files)) {
+            $sortedFiles = $sortFilesByNameStructure($files);
+            foreach ($sortedFiles as $file) {
+                require_once $file;
+                $includedCount++;
+            }
+        }
+    }
+    return $includedCount;
 }
