@@ -31,6 +31,12 @@ function findAndIncludeSpecificFolders(string $baseDir, array $targetFolderNames
 
 includePhpFiles(path_join(__DIR__, 'Helpers'));
 
+// Disable ACF JIT translations and load its textdomain on init to avoid early translation notice
+add_filter('acf/settings/load_textdomain', '__return_false');
+add_action('init', function () {
+    load_plugin_textdomain('acf');
+});
+
 // Find and include Helpers and shortcuts folders at any depth
 findAndIncludeSpecificFolders(__DIR__ . '/Services', [
     'helpers',

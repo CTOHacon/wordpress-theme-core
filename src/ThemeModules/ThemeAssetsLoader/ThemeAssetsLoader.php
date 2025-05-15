@@ -39,10 +39,12 @@ class ThemeAssetsLoader extends ThemeModule
     public function init()
     {
         foreach ($this->config as $method => $value) {
-            if (method_exists($this, $method) && is_callable([
-                $this,
-                $method
-            ])) {
+            if (
+                method_exists($this, $method) && is_callable([
+                    $this,
+                    $method
+                ])
+            ) {
                 $ref    = new \ReflectionMethod($this, $method);
                 $params = $ref->getParameters();
                 if (count($params) === 1) {
@@ -116,9 +118,11 @@ class ThemeAssetsLoader extends ThemeModule
      */
     public function enqueFrontendCSS(array $paths)
     {
-        foreach ($paths as $cssAsset) {
-            wp_enqueue_style("wp_theme-$cssAsset", getThemeFileUri($cssAsset));
-        }
+        add_action('wp_enqueue_scripts', function () use ($paths) {
+            foreach ($paths as $cssAsset) {
+                wp_enqueue_style("wp_theme-$cssAsset", getThemeFileUri($cssAsset));
+            }
+        });
     }
 
     /**
@@ -178,9 +182,11 @@ class ThemeAssetsLoader extends ThemeModule
      */
     public function enqueFrontendJS(array $paths)
     {
-        foreach ($paths as $jsAsset) {
-            wp_enqueue_script("wp_theme-$jsAsset", getThemeFileUri($jsAsset), [], null, true);
-        }
+        add_action('wp_enqueue_scripts', function () use ($paths) {
+            foreach ($paths as $jsAsset) {
+                wp_enqueue_script("wp_theme-$jsAsset", getThemeFileUri($jsAsset), [], null, true);
+            }
+        });
     }
 
     /**
