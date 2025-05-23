@@ -20,13 +20,35 @@ function requireAll(string ...$paths): int
     $getRootName = static fn(string $filename): string => ($dotPos = strpos($filename, '.')) !== false ? substr($filename, 0, $dotPos) : $filename;
     // Helper: sortFilesByNameStructure
 
-    $sortFilesByNameStructure = static fn(array $files) => (usort(
-        $files,
-        fn(string $a, string $b): int =>
-        ($dotsA = substr_count(basename($a), '.')) !== ($dotsB = substr_count(basename($b), '.'))
-        ? $dotsA <=> $dotsB
-        : $getRootName(basename($a)) <=> $getRootName(basename($b))
-    ) ? $files : $files);
+    $sortFilesByNameStructure = static function (array $files) use ($getRootName): array {
+        usort($files, function (string $a, string $b) use ($getRootName): int {
+            $baseA = basename($a);
+            $baseB = basename($b);
+
+            $partsA = explode('.', $baseA);
+            $partsB = explode('.', $baseB);
+
+            $countA = count($partsA);
+            $countB = count($partsB);
+
+            if ($countA !== $countB) {
+                return $countA <=> $countB;
+            }
+
+            foreach ($partsA as $index => $part) {
+                if (!isset($partsB[$index])) {
+                    return 1;
+                }
+                if ($part !== $partsB[$index]) {
+                    return $part <=> $partsB[$index];
+                }
+            }
+
+            return 0;
+        });
+
+        return $files;
+    };
 
     foreach ($paths as $path) {
         // 1) Wildcard import
@@ -36,6 +58,8 @@ function requireAll(string ...$paths): int
             } else {
                 $files = PatternScanner::scan($path);
             }
+            // Sort wildcard results according to hierarchy before requiring
+            $files = $sortFilesByNameStructure($files);
             foreach ($files as $filePath) {
                 require_once $filePath;
                 $includedCount++;

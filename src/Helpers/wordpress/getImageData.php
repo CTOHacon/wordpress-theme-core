@@ -1,19 +1,31 @@
 <?php
 /**
- * Retrieves image data by ID and size
+ * Retrieves image data by reference (ID, array, or object) and size
  *
- * @param int $id The attachment ID
+ * @param mixed $reference The attachment ID, array, or object returned from ACF image field
  * @param string $size The image size (default: 'full')
- * @return array An array containing the image data or false if the ID is empty
+ * @return array An array containing the image data or empty array if invalid
  */
-function getImageData($id, $size = 'full')
+function getImageData($reference, $size = 'full')
 {
-    if (!$id)
+    if (!$reference)
         return [];
+
+    // Handle if reference is an array or object from ACF
+    if (is_array($reference) && isset($reference['ID'])) {
+        $id = $reference['ID'];
+    } elseif (is_object($reference) && isset($reference->ID)) {
+        $id = $reference->ID;
+    } elseif (is_numeric($reference)) {
+        $id = $reference;
+    } else {
+        return [];
+    }
 
     $image = wp_get_attachment_image_src($id, $size);
     if (!$image)
         return [];
+
     $image_data = [
         'src'    => $image[0],
         'width'  => $image[1],
@@ -23,5 +35,6 @@ function getImageData($id, $size = 'full')
         'srcset' => wp_get_attachment_image_srcset($id, $size),
         'sizes'  => wp_get_attachment_image_sizes($id, $size),
     ];
+
     return $image_data;
 }
