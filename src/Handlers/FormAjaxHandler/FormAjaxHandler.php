@@ -1,7 +1,6 @@
 <?php
 namespace Hacon\ThemeCore\Handlers\FormAjaxHandler;
 
-use Exception;
 use Hacon\ThemeCore\Services\TelegramService\TelegramService;
 use Hacon\ThemeCore\ThemeModules\ReCaptcha\ReCaptcha;
 
@@ -11,6 +10,8 @@ class FormAjaxHandler
     private array           $fields                   = [];
     private bool            $recaptchaEnabled         = true;
     private TelegramService $telegramService;
+    private string          $telegramBotToken         = '';
+    private string          $telegramChatId           = '';
     private array           $receiverEmails           = [];
     private                 $templateCallback         = null; /* @var callable */
     private                 $emailTemplateCallback    = null; /* @var callable */
@@ -19,6 +20,9 @@ class FormAjaxHandler
     private                 $wpPostType               = 'form-orders';
     private                 $formTitle                = null;
     private                 $redirect                 = "/thank-you";
+    private string          $senderName               = '';
+    private string          $senderEmail              = '';
+    private array           $customSubmitHandlers     = [];
     /**
      * Constructor.
      *
@@ -27,20 +31,57 @@ class FormAjaxHandler
     public function __construct(string $action)
     {
         $this->action = $action;
+
+        // Initialize default values from theme config
+        $this->telegramBotToken = getThemeСonfig('telegram.botToken', '');
+        $this->telegramChatId   = getThemeСonfig('telegram.chatId', '');        // Set default template callback
+        $this->templateCallback = function (array $data, array $fields = []) {
+            $message = "You have received a new message:\n\n";
+            foreach ($data as $key => $value) {
+                // Use field label if available, otherwise format the key
+                $label = isset($fields[$key]['label']) ? $fields[$key]['label'] : ucfirst($key);
+
+                if (is_array($value)) {
+                    foreach ($value as $item) {
+                        if ($item['type'] === 'attachment') {
+                            $message .= "<a href='{$item['url']}'>{$item['file_name']}</a>\n";
+                        }
+                    }
+                } else {
+                    $message .= $label . ': ' . $value . "\n";
+                }
+            }
+            return $message;
+        };
     }
 
     /**
-     * Add a field with its validation rules.
+     * Add a field with its parameters.
      *
-     * Example rules: ['required', 'email']
-     *
-     * @param string $field The field name.
-     * @param array  $rules An array of rules.
+     * @param string $fieldName The field name.
+     * @param array  $params Field parameters including rules, modifier, label, etc.
+     *                       - 'rules' (array): Validation rules like ['required', 'email']
+     *                       - 'modifier' (callable): Optional function to modify value after validation
+     *                       - 'label' (string): Field label for templating (defaults to formatted field name)
+     *                       - Any other custom data for use in templates
      * @return self
      */
-    public function addField(string $field, array $rules): self
+    public function addField(string $fieldName, array $params): self
     {
-        $this->fields[$field] = $rules;
+        // Ensure rules is an array
+        if (!isset($params['rules'])) {
+            $params['rules'] = [];
+        }
+
+        // Set default label if not provided
+        if (!isset($params['label'])) {
+            $params['label'] = ucwords(str_replace([
+                '_',
+                '-'
+            ], ' ', $fieldName));
+        }
+
+        $this->fields[$fieldName] = $params;
         return $this;
     }
 
@@ -71,7 +112,7 @@ class FormAjaxHandler
     /**
      * Set a custom DEFAULT template callback.
      *
-     * The callback receives array $data and should return a string.
+     * The callback receives array $data and array $fields and should return a string.
      *
      * @param callable $callback
      * @return self
@@ -85,7 +126,7 @@ class FormAjaxHandler
     /**
      * Set a custom email template callback.
      *
-     * The callback receives array $data and should return a string.
+     * The callback receives array $data and array $fields and should return a string.
      *
      * @param callable $callback
      * @return self
@@ -99,7 +140,7 @@ class FormAjaxHandler
     /**
      * Set a custom Telegram template callback.
      *
-     * The callback receives array $data and should return a string.
+     * The callback receives array $data and array $fields and should return a string.
      *
      * @param callable $callback
      * @return self
@@ -125,7 +166,7 @@ class FormAjaxHandler
     /**
      * Set a custom WP post template callback.
      *
-     * The callback receives array $data and should return a string.
+     * The callback receives array $data and array $fields and should return a string.
      *
      * @param callable $callback
      * @return self
@@ -177,41 +218,58 @@ class FormAjaxHandler
     }
 
     /**
-     * Initialize the AJAX handlers.
+     * Set the sender name and email for outgoing emails.
+     *
+     * @param string $name The sender name to display in email clients.
+     * @param string $email The sender email address.
+     * @return self
+     */
+    public function setEmailSenderInfo(string $name, string $email = ''): self
+    {
+        $this->senderName  = $name;
+        $this->senderEmail = $email;
+        return $this;
+    }
+
+    /**
+     * Add a custom submit handler for CRM integrations or other purposes.
+     *
+     * The callback receives array $data and array $fields and should return a boolean indicating success.
+     *
+     * @param callable $handler The handler callback function.
+     * @param string $name Optional name for the handler (for debugging/logging).
+     * @return self
+     */
+    public function addCustomSubmitHandler(callable $handler, string $name = ''): self
+    {
+        $this->customSubmitHandlers[] = [
+            'handler' => $handler,
+            'name'    => $name ?: 'Handler ' . (count($this->customSubmitHandlers) + 1)
+        ];
+        return $this;
+    }
+
+    /**
+     * Register the AJAX handler.
      *
      * Registers both logged-in and not-logged-in handlers.
      *
      * @return void
      */
-    public function init(): void
+    public function registerAjaxHandler(): void
     {
-        if (empty($this->telegramBotToken)) {
-            $this->telegramBotToken = getThemeСonfig('telegram.botToken', '');
-        }
-        if (empty($this->telegramChatId)) {
-            $this->telegramChatId = getThemeСonfig('telegram.chatId', '');
-        }
-        if (empty($this->templateCallback)) {
-            $this->templateCallback = function (array $data) {
-                $message = "You have received a new message:\n\n";
-                foreach ($data as $key => $value) {
-                    if (is_array($value)) {
-                        foreach ($value as $item) {
-                            if ($item['type'] === 'attachment') {
-                                $message .= "<a href='{$item['url']}'>{$item['file_name']}</a>\n";
-                            }
-                        }
-                    } else {
-                        $message .= ucfirst($key) . ': ' . $value . "\n";
-                    }
-                }
-                return $message;
-            };
-        }
         registerAjaxAction($this->action, [
             $this,
             'handleRequest'
         ]);
+    }
+
+    /**
+     * init method for legacy support.
+     */
+    public function init(): void
+    {
+        $this->registerAjaxHandler();
     }
 
     /**
@@ -227,18 +285,25 @@ class FormAjaxHandler
     {
         $errors = [];
         $data   = [];
+        $fields = []; // Will contain all field data including values
         // Temporary storage for files to upload after validations.
         $filesToUpload = [];
 
         // Process and validate each registered field.
-        foreach ($this->fields as $field => $rules) {
+        foreach ($this->fields as $fieldName => $fieldParams) {
+            $rules = $fieldParams['rules'] ?? [];
+
+            // Initialize field data with all parameters
+            $fieldData          = $fieldParams;
+            $fieldData['value'] = null;
+
             // Check if the field is a file upload.
-            if (isset($_FILES[$field])) {
-                $file = $_FILES[$field];
+            if (isset($_FILES[$fieldName])) {
+                $file = $_FILES[$fieldName];
 
                 // Check if a file is required.
                 if (in_array('required', $rules, true) && $file['error'] === UPLOAD_ERR_NO_FILE) {
-                    $errors[$field] = 'This file field is required.';
+                    $errors[$fieldName] = 'This file field is required.';
                     continue;
                 }
 
@@ -248,7 +313,7 @@ class FormAjaxHandler
                     if (isset($rules['max_size'])) {
                         $maxBytes = $rules['max_size'] * 1024 * 1024;
                         if ($file['size'] > $maxBytes) {
-                            $errors[$field] = 'The file exceeds the maximum allowed size of ' . $rules['max_size'] . ' MB.';
+                            $errors[$fieldName] = 'The file exceeds the maximum allowed size of ' . $rules['max_size'] . ' MB.';
                             continue;
                         }
                     }
@@ -256,53 +321,61 @@ class FormAjaxHandler
                     if (in_array('image', $rules, true)) {
                         $check = getimagesize($file['tmp_name']);
                         if ($check === false) {
-                            $errors[$field] = 'Uploaded file is not a valid image.';
+                            $errors[$fieldName] = 'Uploaded file is not a valid image.';
                             continue;
                         }
                     }
                     // Additional file rules can be added here if needed.
 
                     // Save the file for later upload if all validations pass.
-                    $filesToUpload[$field] = $file;
+                    $filesToUpload[$fieldName] = $file;
+                    $fieldData['value']        = $file;
                 } else {
                     // If some error occurred other than no file.
                     if ($file['error'] !== UPLOAD_ERR_NO_FILE) {
-                        $errors[$field] = 'File upload error code: ' . $file['error'];
+                        $errors[$fieldName] = 'File upload error code: ' . $file['error'];
                     }
                 }
             } else {
                 // Process non-file fields.
-                $value        = isset($_POST[$field]) ? sanitize_text_field(wp_unslash($_POST[$field])) : '';
-                $data[$field] = $value;
+                $value = isset($_POST[$fieldName]) ? sanitize_text_field(wp_unslash($_POST[$fieldName])) : '';
 
                 if (in_array('required', $rules, true) && empty($value)) {
-                    $errors[$field] = 'This field is required.';
+                    $errors[$fieldName] = 'This field is required.';
                 }
                 if (in_array('email', $rules, true) && !is_email($value)) {
-                    $errors[$field] = 'Please enter a valid email address.';
+                    $errors[$fieldName] = 'Please enter a valid email address.';
                 }
                 if (in_array('numeric', $rules, true) && !is_numeric($value)) {
-                    $errors[$field] = 'Please enter a valid number.';
+                    $errors[$fieldName] = 'Please enter a valid number.';
                 }
                 if (in_array('tel', $rules, true)) {
                     $onlyDigits = preg_replace('/\D/', '', $value);
                     if (strlen($onlyDigits) < 10) {
-                        $errors[$field] = 'Please enter a valid phone number.';
+                        $errors[$fieldName] = 'Please enter a valid phone number.';
                     }
                 }
                 if (isset($rules['min_length']) && strlen($value) < $rules['min_length']) {
-                    $errors[$field] = 'This field must be at least ' . $rules['min_length'] . ' characters long.';
+                    $errors[$fieldName] = 'This field must be at least ' . $rules['min_length'] . ' characters long.';
                 }
                 if (isset($rules['max_length']) && strlen($value) > $rules['max_length']) {
-                    $errors[$field] = 'This field must be no more than ' . $rules['max_length'] . ' characters long.';
+                    $errors[$fieldName] = 'This field must be no more than ' . $rules['max_length'] . ' characters long.';
                 }
                 if (isset($rules['regex']) && !preg_match($rules['regex'], $value)) {
-                    $errors[$field] = 'This field does not match the required format.';
+                    $errors[$fieldName] = 'This field does not match the required format.';
                 }
-            }
-        }
 
-        // If no errors so far, process the file uploads.
+                // Apply modifier if provided
+                if (isset($fieldParams['modifier']) && is_callable($fieldParams['modifier'])) {
+                    $value = call_user_func($fieldParams['modifier'], $value);
+                }
+
+                $data[$fieldName]   = $value;
+                $fieldData['value'] = $value;
+            }
+
+            $fields[$fieldName] = $fieldData;
+        }        // If no errors so far, process the file uploads.
         if (empty($errors)) {
             foreach ($filesToUpload as $field => $file) {
                 $mediaFileId    = storeUploadInMediaGallery($file);
@@ -312,6 +385,9 @@ class FormAjaxHandler
                     'file_name'     => basename($file['name']),
                     'attachment_id' => $mediaFileId,
                 ];
+
+                // Update field data with processed file info
+                $fields[$field]['value'] = $data[$field];
             }
         }
 
@@ -333,18 +409,25 @@ class FormAjaxHandler
         }
 
         // Send email notification.
-        $emailSent = $this->sendEmail($data);
-
-        // Send Telegram message if credentials are set.
+        $emailSent    = $this->sendEmail($data, $fields);        // Send Telegram message if credentials are set.
         $telegramSent = true;
         if (!empty($this->telegramBotToken) && !empty($this->telegramChatId)) {
-            $telegramSent = $this->telegramService->sendTelegramMessage($data);
+            if (!isset($this->telegramService)) {
+                $this->telegramService = new TelegramService($this->telegramBotToken, $this->telegramChatId);
+            }
+            $telegramMessage = is_callable($this->telegramTemplateCallback)
+                ? call_user_func($this->telegramTemplateCallback, $data, $fields)
+                : call_user_func($this->templateCallback, $data, $fields);
+            $telegramSent    = $this->telegramService->sendTelegramMessage($telegramMessage);
         }
 
         // Create a WP post with the submitted data.
-        $wpPostCreated = $this->createWpPost($data);
+        $wpPostCreated = $this->createWpPost($data, $fields);
 
-        if ($emailSent && $telegramSent && $wpPostCreated) {
+        // Execute custom submit handlers.
+        $customHandlersExecuted = $this->executeCustomSubmitHandlers($data, $fields);
+
+        if ($emailSent && $telegramSent && $wpPostCreated && $customHandlersExecuted) {
             $this->sendResponse(true, 'Your message was sent successfully.');
         } else {
             $this->sendResponse(false, 'There was an error sending your message.');
@@ -355,9 +438,10 @@ class FormAjaxHandler
      * Send an email notification.
      *
      * @param array $data The sanitized form data.
+     * @param array $fields The complete field data including values and metadata.
      * @return bool
      */
-    private function sendEmail(array $data): bool
+    private function sendEmail(array $data, array $fields = []): bool
     {
         $subject = 'New Contact Form Submission';
         if (is_callable($this->formTitle)) {
@@ -365,12 +449,25 @@ class FormAjaxHandler
         }
 
         $message = is_callable($this->emailTemplateCallback)
-            ? call_user_func($this->emailTemplateCallback, $data)
-            : call_user_func($this->templateCallback, $data);
+            ? call_user_func($this->emailTemplateCallback, $data, $fields)
+            : call_user_func($this->templateCallback, $data, $fields);
 
         foreach ($this->receiverEmails ?? [] as $email) {
             $to      = $email;
             $headers = ['Content-Type: text/html; charset=UTF-8'];
+            if ($this->senderName || $this->senderEmail) {
+                $from = '';
+                if ($this->senderName && $this->senderEmail) {
+                    $from = sprintf('From: "%s" <%s>', $this->senderName, $this->senderEmail);
+                } elseif ($this->senderEmail) {
+                    $from = sprintf('From: %s', $this->senderEmail);
+                } elseif ($this->senderName) {
+                    $from = sprintf('From: "%s"', $this->senderName);
+                }
+                if ($from) {
+                    $headers[] = $from;
+                }
+            }
             wp_mail($to, $subject, $message, $headers);
         }
 
@@ -381,13 +478,14 @@ class FormAjaxHandler
      * Create a form-orders post with the submitted data.
      * 
      * @param array $data The sanitized form data.
+     * @param array $fields The complete field data including values and metadata.
      * @return bool 
      */
-    private function createWpPost(array $data): bool
+    private function createWpPost(array $data, array $fields = []): bool
     {
         $postContent = is_callable($this->wpPostTemplateCallback)
-            ? call_user_func($this->wpPostTemplateCallback, $data)
-            : call_user_func($this->templateCallback, $data);
+            ? call_user_func($this->wpPostTemplateCallback, $data, $fields)
+            : call_user_func($this->templateCallback, $data, $fields);
 
         $postTitle = 'New Form Submit';
         if (is_callable($this->formTitle)) {
@@ -402,6 +500,32 @@ class FormAjaxHandler
 
         $postId = wp_insert_post($post);
         return $postId !== 0;
+    }
+
+    /**
+     * Execute all custom submit handlers.
+     *
+     * @param array $data The sanitized form data.
+     * @param array $fields The complete field data including values and metadata.
+     * @return bool True if all handlers succeeded, false otherwise.
+     */
+    private function executeCustomSubmitHandlers(array $data, array $fields = []): bool
+    {
+        foreach ($this->customSubmitHandlers as $handlerInfo) {
+            try {
+                $result = call_user_func($handlerInfo['handler'], $data, $fields);
+                if (!$result) {
+                    // Log the failure if needed
+                    error_log('Custom submit handler "' . $handlerInfo['name'] . '" failed');
+                    return false;
+                }
+            } catch (\Exception $e) {
+                // Log the exception if needed
+                error_log('Custom submit handler "' . $handlerInfo['name'] . '" threw exception: ' . $e->getMessage());
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
