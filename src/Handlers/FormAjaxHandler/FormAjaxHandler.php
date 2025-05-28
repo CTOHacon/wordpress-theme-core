@@ -447,28 +447,40 @@ class FormAjaxHandler
         if (is_callable($this->formTitle)) {
             $subject = call_user_func($this->formTitle, $data);
         }
-
-        $message = is_callable($this->emailTemplateCallback)
+        $message         = is_callable($this->emailTemplateCallback)
             ? call_user_func($this->emailTemplateCallback, $data, $fields)
-            : call_user_func($this->templateCallback, $data, $fields);
+            : call_user_func($this->templateCallback, $data, $fields);        // Set up WordPress filters for email sender info
+        $fromEmailFilter = null;
+        $fromNameFilter  = null;
+
+        if ($this->senderEmail) {
+            $senderEmail     = $this->senderEmail; // Capture value for closure
+            $fromEmailFilter = function () use ($senderEmail) {
+                return $senderEmail;
+            };
+            add_filter('wp_mail_from', $fromEmailFilter, 999);
+        }
+
+        if ($this->senderName) {
+            $senderName     = $this->senderName; // Capture value for closure
+            $fromNameFilter = function () use ($senderName) {
+                return $senderName;
+            };
+            add_filter('wp_mail_from_name', $fromNameFilter, 999);
+        }
 
         foreach ($this->receiverEmails ?? [] as $email) {
             $to      = $email;
             $headers = ['Content-Type: text/html; charset=UTF-8'];
-            if ($this->senderName || $this->senderEmail) {
-                $from = '';
-                if ($this->senderName && $this->senderEmail) {
-                    $from = sprintf('From: "%s" <%s>', $this->senderName, $this->senderEmail);
-                } elseif ($this->senderEmail) {
-                    $from = sprintf('From: %s', $this->senderEmail);
-                } elseif ($this->senderName) {
-                    $from = sprintf('From: "%s"', $this->senderName);
-                }
-                if ($from) {
-                    $headers[] = $from;
-                }
-            }
             wp_mail($to, $subject, $message, $headers);
+        }
+
+        // Remove the filters to avoid affecting other emails
+        if ($fromEmailFilter) {
+            remove_filter('wp_mail_from', $fromEmailFilter, 999);
+        }
+        if ($fromNameFilter) {
+            remove_filter('wp_mail_from_name', $fromNameFilter, 999);
         }
 
         return true;
