@@ -23,8 +23,7 @@ function createACFBlock(array $blockConfig, array $fieldsSchema, callable $rende
         $example['attributes']['data']['_the_editor_preview_image'] = $previewImage;
     }
 
-    acf_register_block_type([
-        ...$blockConfig,
+    acf_register_block_type(array_merge($blockConfig, [
         'example'         => $example,
         'render_callback' => function ($block, $content = '', $is_preview = false, $post_id = 0) use ($renderer) {
 
@@ -52,7 +51,7 @@ function createACFBlock(array $blockConfig, array $fieldsSchema, callable $rende
                 'post_id'    => $post_id
             ]);
         },
-    ]);
+    ]));
 
     acf_add_local_field_group([
         'key'      => "$name\_acf_block_fields",
