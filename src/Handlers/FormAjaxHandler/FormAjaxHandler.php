@@ -409,26 +409,45 @@ class FormAjaxHandler
             $this->sendResponse(false, null, $errors);
         }
 
-        // Send email notification.
-        $emailSent    = $this->sendEmail($data, $fields);        // Send Telegram message if credentials are set.
-        $telegramSent = true;
+        // Send Telegram message if credentials are set and track any errors.
+        $telegramError = null;
         if (!empty($this->telegramBotToken) && !empty($this->telegramChatId)) {
-            if (!isset($this->telegramService)) {
-                $this->telegramService = new TelegramService($this->telegramBotToken, $this->telegramChatId);
+            try {
+                if (!isset($this->telegramService)) {
+                    $this->telegramService = new TelegramService($this->telegramBotToken, $this->telegramChatId);
+                }
+                $telegramMessage = is_callable($this->telegramTemplateCallback)
+                    ? call_user_func($this->telegramTemplateCallback, $data, $fields)
+                    : call_user_func($this->templateCallback, $data, $fields);
+
+                if (!$this->telegramService->sendTelegramMessage($telegramMessage)) {
+                    $telegramError = 'Telegram API returned unsuccessful response';
+                }
+            } catch (\Exception $e) {
+                $telegramError = $e->getMessage();
+            } catch (\Throwable $e) {
+                $telegramError = $e->getMessage();
             }
-            $telegramMessage = is_callable($this->telegramTemplateCallback)
-                ? call_user_func($this->telegramTemplateCallback, $data, $fields)
-                : call_user_func($this->templateCallback, $data, $fields);
-            $telegramSent    = $this->telegramService->sendTelegramMessage($telegramMessage);
         }
 
-        // Create a WP post with the submitted data.
-        $wpPostCreated = $this->createWpPost($data, $fields);
+        // Prepare error note if Telegram failed
+        $errorNote = null;
+        if ($telegramError !== null) {
+            $errorNote = "\n\n---\nNOTE: There was an error with Telegram connection: " . $telegramError;
+        }
+
+        // Send email notification (with error note if Telegram failed).
+        $emailSent = $this->sendEmail($data, $fields, $errorNote);
+
+        // Create a WP post with the submitted data (with error note if Telegram failed).
+        $wpPostCreated = $this->createWpPost($data, $fields, $errorNote);
 
         // Execute custom submit handlers.
         $customHandlersExecuted = $this->executeCustomSubmitHandlers($data, $fields);
 
-        if ($emailSent && $telegramSent && $wpPostCreated && $customHandlersExecuted) {
+        // Consider the request successful if email/WP post/handlers succeeded
+        // Note: Telegram failure doesn't block the overall success
+        if ($emailSent && $wpPostCreated && $customHandlersExecuted) {
             $this->sendResponse(true, 'Your message was sent successfully.');
         } else {
             $this->sendResponse(false, 'There was an error sending your message.');
@@ -440,17 +459,23 @@ class FormAjaxHandler
      *
      * @param array $data The sanitized form data.
      * @param array $fields The complete field data including values and metadata.
+     * @param string|null $errorNote Optional error note to append to the message.
      * @return bool
      */
-    private function sendEmail(array $data, array $fields = []): bool
+    private function sendEmail(array $data, array $fields = [], ?string $errorNote = null): bool
     {
         $subject = 'New Contact Form Submission';
         if (is_callable($this->formTitle)) {
             $subject = call_user_func($this->formTitle, $data);
         }
-        $message         = is_callable($this->emailTemplateCallback)
+        $message = is_callable($this->emailTemplateCallback)
             ? call_user_func($this->emailTemplateCallback, $data, $fields)
-            : call_user_func($this->templateCallback, $data, $fields);        // Set up WordPress filters for email sender info
+            : call_user_func($this->templateCallback, $data, $fields);
+
+        // Append error note if provided
+        if ($errorNote !== null) {
+            $message  .= $errorNote;
+        }        // Set up WordPress filters for email sender info
         $fromEmailFilter = null;
         $fromNameFilter  = null;
 
@@ -492,13 +517,19 @@ class FormAjaxHandler
      * 
      * @param array $data The sanitized form data.
      * @param array $fields The complete field data including values and metadata.
+     * @param string|null $errorNote Optional error note to append to the content.
      * @return bool 
      */
-    private function createWpPost(array $data, array $fields = []): bool
+    private function createWpPost(array $data, array $fields = [], ?string $errorNote = null): bool
     {
         $postContent = is_callable($this->wpPostTemplateCallback)
             ? call_user_func($this->wpPostTemplateCallback, $data, $fields)
             : call_user_func($this->templateCallback, $data, $fields);
+
+        // Append error note if provided
+        if ($errorNote !== null) {
+            $postContent  .= $errorNote;
+        }
 
         $postTitle = 'New Form Submit';
         if (is_callable($this->formTitle)) {
