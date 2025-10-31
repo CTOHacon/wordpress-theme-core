@@ -44,11 +44,11 @@ class FormAjaxHandler
                 if (is_array($value)) {
                     foreach ($value as $item) {
                         if ($item['type'] === 'attachment') {
-                            $message .= "<a href='{$item['url']}'>{$item['file_name']}</a>\n";
+                            $message  .= "<a href='{$item['url']}'>{$item['file_name']}</a>\n";
                         }
                     }
                 } else {
-                    $message .= $label . ': ' . $value . "\n";
+                    $message  .= $label . ': ' . $value . "\n";
                 }
             }
             return $message;
@@ -105,7 +105,8 @@ class FormAjaxHandler
      */
     public function setTelegramCredentials(string $botToken, string $chatId): self
     {
-        $this->telegramService = new TelegramService($botToken, $chatId);
+        $this->telegramBotToken = $botToken;
+        $this->telegramChatId   = $chatId;
         return $this;
     }
 
