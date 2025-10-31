@@ -73,17 +73,21 @@ class ThemeAssetsLoader extends ThemeModule
         if (!is_admin()) {
             global $wp_styles;
             $deque_styles = [];
-            foreach ($wp_styles->queue as $handle) {
-                $skip = false;
-                foreach ($exclude as $pattern) {
-                    if (fnmatch($pattern, $handle)) {
-                        $skip = true;
-                        break;
+            // $wp_styles may be null in some contexts (causes "Attempt to read property 'queue' on null").
+            // Only iterate if the object exists and has a 'queue' property.
+            if (isset($wp_styles) && is_object($wp_styles) && property_exists($wp_styles, 'queue') && is_array($wp_styles->queue)) {
+                foreach ($wp_styles->queue as $handle) {
+                    $skip = false;
+                    foreach ($exclude as $pattern) {
+                        if (fnmatch($pattern, $handle)) {
+                            $skip = true;
+                            break;
+                        }
                     }
+                    if ($skip)
+                        continue;
+                    $deque_styles[] = $handle;
                 }
-                if ($skip)
-                    continue;
-                $deque_styles[] = $handle;
             }
             foreach ($deque_styles as $handle) {
                 wp_dequeue_style($handle);
