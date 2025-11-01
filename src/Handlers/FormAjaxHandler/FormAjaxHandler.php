@@ -420,13 +420,19 @@ class FormAjaxHandler
                     ? call_user_func($this->telegramTemplateCallback, $data, $fields)
                     : call_user_func($this->templateCallback, $data, $fields);
 
-                if (!$this->telegramService->sendTelegramMessage($telegramMessage)) {
-                    $telegramError = 'Telegram API returned unsuccessful response';
+                $result = $this->telegramService->sendTelegramMessage($telegramMessage);
+
+                if ($result === false) {
+                    // Get the detailed error from TelegramService
+                    $telegramError = $this->telegramService->getLastError();
+                    if (empty($telegramError)) {
+                        $telegramError = 'Telegram API returned unsuccessful response (no error details available)';
+                    }
                 }
             } catch (\Exception $e) {
-                $telegramError = $e->getMessage();
+                $telegramError = 'Exception: ' . $e->getMessage();
             } catch (\Throwable $e) {
-                $telegramError = $e->getMessage();
+                $telegramError = 'Throwable: ' . $e->getMessage();
             }
         }
 
