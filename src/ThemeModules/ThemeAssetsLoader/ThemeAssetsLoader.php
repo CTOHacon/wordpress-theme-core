@@ -330,6 +330,7 @@ class ThemeAssetsLoader extends ThemeModule
             ?>
             <script>
                 var loaded = false;
+
                 function loadLazyScripts(srcList)
                 {
                     if (loaded) return;
@@ -359,7 +360,9 @@ class ThemeAssetsLoader extends ThemeModule
                             }
                             ?>
                         ]);
-                    }, { once: true });
+                    }, {
+                        once: true
+                    });
                 });
             </script>
             <?php
