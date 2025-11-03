@@ -62,7 +62,8 @@ class AutoTableOfContentsProcessor
         // Load content into DOMDocument
         $dom = new DOMDocument();
         libxml_use_internal_errors(true);
-        $html = mb_convert_encoding($content, 'HTML-ENTITIES', 'UTF-8');
+        // Prepend UTF-8 meta tag to ensure proper encoding
+        $html = '<?xml encoding="UTF-8">' . $content;
         $dom->loadHTML($html, LIBXML_HTML_NOIMPLIED | LIBXML_HTML_NODEFDTD);
         libxml_clear_errors();
 
