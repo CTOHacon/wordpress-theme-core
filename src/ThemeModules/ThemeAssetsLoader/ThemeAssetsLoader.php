@@ -170,16 +170,6 @@ class ThemeAssetsLoader extends ThemeModule
                 wp_enqueue_style("wp_theme-editor-{$cssAsset}", getThemeFileUri($cssAsset));
             }
         });
-
-        // Block styles in previews and block pattern edit contexts
-        add_action('enqueue_block_assets', function () use ($paths) {
-            if (!is_admin()) {
-                return;
-            }
-            foreach ($paths as $cssAsset) {
-                wp_enqueue_style("wp_theme-editor-{$cssAsset}", getThemeFileUri($cssAsset));
-            }
-        });
     }
 
     /**
