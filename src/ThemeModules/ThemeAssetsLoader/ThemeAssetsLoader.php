@@ -166,6 +166,11 @@ class ThemeAssetsLoader extends ThemeModule
     {
         // Editor assets in the backend post/block editor
         add_action('enqueue_block_editor_assets', function () use ($paths) {
+            // Only enqueue editor styles in the admin/editor context
+            if (!is_admin()) {
+                return;
+            }
+
             foreach ($paths as $cssAsset) {
                 wp_enqueue_style("wp_theme-editor-{$cssAsset}", getThemeFileUri($cssAsset));
             }
