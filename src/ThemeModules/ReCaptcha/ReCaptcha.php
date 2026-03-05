@@ -8,67 +8,154 @@ use Hacon\ThemeCore\ThemeModules\ThemeModule;
  */
 class ReCaptcha extends ThemeModule
 {
-    private $siteKey;
-    private $secretKey;
+    private string $siteKey;
+    private string $secretKey;
+
+    private const OPTION_SITE_KEY   = 'hacon_recaptcha_site_key';
+    private const OPTION_SECRET_KEY = 'hacon_recaptcha_secret_key';
+    private const SETTINGS_SLUG     = 'hacon-recaptcha-settings';
 
     /**
      * Private constructor to prevent direct instantiation
      */
     protected function __construct(array $config)
     {
-        $this->siteKey   = $config['siteKey'];
-        $this->secretKey = $config['secretKey'];
+        $this->siteKey   = get_option(self::OPTION_SITE_KEY, '');
+        $this->secretKey = get_option(self::OPTION_SECRET_KEY, '');
     }
 
     public function init()
     {
-        /**
-         * Inject reCAPTCHA frontend scripts
-         */
+        add_action('admin_menu', [$this, 'registerSettingsPage']);
+        add_action('admin_post_hacon_recaptcha_save', [$this, 'handleSettingsSave']);
+
+        if (!$this->isConfigured()) {
+            return;
+        }
+
         add_action('wp_footer', function () {
             echo $this->getFrontendScripts();
         });
     }
 
-    public function getSiteKey()
+    /**
+     * Check if reCAPTCHA credentials are configured.
+     */
+    public function isConfigured(): bool
+    {
+        return !empty($this->siteKey) && !empty($this->secretKey);
+    }
+
+    public function getSiteKey(): string
     {
         return $this->siteKey;
     }
 
-    public function getSecretKey()
+    /**
+     * Register the settings page under Settings menu.
+     */
+    public function registerSettingsPage(): void
     {
-        return $this->secretKey;
+        add_options_page(
+            'reCAPTCHA Settings',
+            'reCAPTCHA',
+            'manage_options',
+            self::SETTINGS_SLUG,
+            [$this, 'renderSettingsPage']
+        );
+    }
+
+    /**
+     * Render the admin settings page.
+     */
+    public function renderSettingsPage(): void
+    {
+        $siteKey   = get_option(self::OPTION_SITE_KEY, '');
+        $secretKey = get_option(self::OPTION_SECRET_KEY, '');
+        ?>
+        <div class="wrap">
+            <h1>reCAPTCHA Settings</h1>
+            <p>Configure your Google reCAPTCHA v2 (Invisible) credentials. Get your keys from
+                <a href="https://www.google.com/recaptcha/admin" target="_blank">Google reCAPTCHA Admin Console</a>.
+            </p>
+            <form method="post" action="<?php echo esc_url(admin_url('admin-post.php')); ?>">
+                <?php wp_nonce_field('hacon_recaptcha_save_action'); ?>
+                <input type="hidden" name="action" value="hacon_recaptcha_save">
+                <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="recaptcha_site_key">Site Key</label></th>
+                        <td>
+                            <input type="text" id="recaptcha_site_key" name="recaptcha_site_key"
+                                   value="<?php echo esc_attr($siteKey); ?>" class="regular-text">
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="recaptcha_secret_key">Secret Key</label></th>
+                        <td>
+                            <input type="password" id="recaptcha_secret_key" name="recaptcha_secret_key"
+                                   value="<?php echo esc_attr($secretKey); ?>" class="regular-text">
+                        </td>
+                    </tr>
+                </table>
+                <?php submit_button('Save Settings'); ?>
+            </form>
+        </div>
+        <?php
+    }
+
+    /**
+     * Handle settings form submission.
+     */
+    public function handleSettingsSave(): void
+    {
+        check_admin_referer('hacon_recaptcha_save_action');
+
+        if (!current_user_can('manage_options')) {
+            wp_die('Unauthorized');
+        }
+
+        $siteKey   = sanitize_text_field($_POST['recaptcha_site_key'] ?? '');
+        $secretKey = sanitize_text_field($_POST['recaptcha_secret_key'] ?? '');
+
+        update_option(self::OPTION_SITE_KEY, $siteKey);
+        update_option(self::OPTION_SECRET_KEY, $secretKey);
+
+        $this->siteKey   = $siteKey;
+        $this->secretKey = $secretKey;
+
+        wp_safe_redirect(add_query_arg(
+            ['page' => self::SETTINGS_SLUG, 'settings-updated' => 'true'],
+            admin_url('options-general.php')
+        ));
+        exit;
     }
 
     /**
      * Get the frontend scripts for reCAPTCHA
-     * 
+     *
      * @return string|void HTML output for reCAPTCHA scripts
      */
     public function getFrontendScripts()
     {
-        if (!$this->siteKey)
+        if (!$this->isConfigured())
             return;
+        $escapedSiteKey = esc_attr($this->siteKey);
         ob_start();
         ?>
         <script>
             (function ()
             {
-                // Ensure the recaptcha API script is added only once.
                 function loadRecaptchaScript(callbackName)
                 {
                     if (document.querySelector('script[src^="https://www.google.com/recaptcha/api.js"]')) return;
 
                     var script = document.createElement('script');
-                    // Use explicit render mode with an onload callback.
                     script.src = 'https://www.google.com/recaptcha/api.js?onload=' + callbackName + '&render=explicit';
                     script.defer = true;
                     script.async = true;
                     document.head.appendChild(script);
-
                 }
 
-                // Create a hidden container for the reCAPTCHA widget.
                 var containerId = 'recaptcha-container';
                 var recaptchaContainer = document.getElementById(containerId);
                 if (!recaptchaContainer)
@@ -79,22 +166,19 @@ class ReCaptcha extends ThemeModule
                     document.body.appendChild(recaptchaContainer);
                 }
 
-                // This variable will store the reCAPTCHA widget ID.
                 var widgetId = null;
 
-                // This function is called when the reCAPTCHA API has loaded.
                 window.onRecaptchaApiLoad = function ()
                 {
                     widgetId = grecaptcha.render(recaptchaContainer, {
-                        'sitekey': '<?= $this->siteKey ?>',
+                        'sitekey': '<?= $escapedSiteKey ?>',
                         'size': 'invisible'
                     });
                 };
 
-                const loadRecaptchaOnInteraction = () =>
+                var loadRecaptchaOnInteraction = function ()
                 {
                     loadRecaptchaScript('onRecaptchaApiLoad');
-                    // Remove event listeners after loading
                     document.removeEventListener('mousemove', loadRecaptchaOnInteraction);
                     document.removeEventListener('click', loadRecaptchaOnInteraction);
                     document.removeEventListener('scroll', loadRecaptchaOnInteraction);
@@ -102,7 +186,6 @@ class ReCaptcha extends ThemeModule
                     document.removeEventListener('touchstart', loadRecaptchaOnInteraction);
                 };
 
-                // Add event listeners for user interactions
                 document.addEventListener('mousemove', loadRecaptchaOnInteraction);
                 document.addEventListener('click', loadRecaptchaOnInteraction);
                 document.addEventListener('scroll', loadRecaptchaOnInteraction);
@@ -111,13 +194,12 @@ class ReCaptcha extends ThemeModule
 
                 /**
                  * Retrieves a reCAPTCHA token by executing the already rendered widget.
-                 * This function returns a Promise that resolves with the token.
-                 * It re-uses the same widget for repeated calls.
+                 * Returns a Promise that resolves with the token.
                  *
                  * Usage:
                  *    const token = await window.getRecaptchaResult();
                  */
-                window.getRecaptchaResult = async function ()
+                window.getRecaptchaResult = function ()
                 {
                     return new Promise(function (resolve, reject)
                     {
@@ -125,7 +207,6 @@ class ReCaptcha extends ThemeModule
                         {
                             return reject(new Error('reCAPTCHA not loaded'));
                         }
-                        // Wait for widgetId if not yet rendered.
                         if (widgetId === null)
                         {
                             var interval = setInterval(function ()
@@ -140,7 +221,7 @@ class ReCaptcha extends ThemeModule
                         {
                             executeRecaptcha();
                         }
-                        // Execute the widget with fresh callbacks.
+
                         function executeRecaptcha()
                         {
                             try
@@ -165,7 +246,6 @@ class ReCaptcha extends ThemeModule
             })();
         </script>
         <style>
-            /* Ensure the recaptcha container is hidden */
             #recaptcha-container {
                 display: none;
             }
@@ -174,46 +254,49 @@ class ReCaptcha extends ThemeModule
         return ob_get_clean();
     }
 
-    public function verify($recaptchaResponse)
+    /**
+     * Verify reCAPTCHA response with Google's API.
+     *
+     * @param string $recaptchaResponse The token from the frontend.
+     * @return array Always returns ['success' => bool, 'error' => string|null]
+     */
+    public function verify($recaptchaResponse): array
     {
-        if (!$this->secretKey || !$recaptchaResponse) {
+        if (!$this->isConfigured() || !$recaptchaResponse) {
             return [
                 'success' => false,
                 'error'   => 'Missing reCAPTCHA secret key or response'
             ];
         }
 
-        $url  = 'https://www.google.com/recaptcha/api/siteverify';
-        $data = [
-            'secret'   => $this->secretKey,
-            'response' => $recaptchaResponse,
-            'remoteip' => $_SERVER['REMOTE_ADDR'] ?? ''
-        ];
+        $response = wp_remote_post('https://www.google.com/recaptcha/api/siteverify', [
+            'timeout' => 5,
+            'body'    => [
+                'secret'   => $this->secretKey,
+                'response' => $recaptchaResponse,
+                'remoteip' => $_SERVER['REMOTE_ADDR'] ?? '',
+            ],
+        ]);
 
-        $options = [
-            'http' => [
-                'header'  => "Content-type: application/x-www-form-urlencoded\r\n",
-                'method'  => 'POST',
-                'content' => http_build_query($data)
-            ]
-        ];
-
-        $context  = stream_context_create($options);
-        $response = file_get_contents($url, false, $context);
-
-        if ($response === false) {
+        if (is_wp_error($response)) {
             return [
                 'success' => false,
-                'error'   => 'Failed to connect to reCAPTCHA server'
+                'error'   => 'Failed to connect to reCAPTCHA server: ' . $response->get_error_message()
             ];
         }
 
-        $result = json_decode($response, true);
+        $result = json_decode(wp_remote_retrieve_body($response), true);
 
-        return $result['success'] ? true : [
-            'success' => false,
-            'error'   => $result['error-codes'] ?? 'Unknown error'
+        if (!is_array($result)) {
+            return [
+                'success' => false,
+                'error'   => 'Invalid response from reCAPTCHA server'
+            ];
+        }
+
+        return [
+            'success' => !empty($result['success']),
+            'error'   => $result['success'] ? null : ($result['error-codes'] ?? 'Unknown error')
         ];
     }
-
 }

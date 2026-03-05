@@ -27,7 +27,10 @@ class Seeders extends ThemeModule
 
     public function init(): void
     {
-        add_action('init', [$this, 'handleSeederRequest']);
+        add_action('init', [
+            $this,
+            'handleSeederRequest'
+        ]);
     }
 
     /**
@@ -35,7 +38,7 @@ class Seeders extends ThemeModule
      */
     public static function register(string $name, callable $callback): void
     {
-        $instance = static::getInstance();
+        $instance                 = static::getInstance();
         $instance->seeders[$name] = $callback;
     }
 
@@ -95,4 +98,5 @@ class Seeders extends ThemeModule
             'Seeders'
         );
     }
+
 }

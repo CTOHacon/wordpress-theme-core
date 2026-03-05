@@ -23,6 +23,7 @@ class FormAjaxHandler
     private string          $senderName               = '';
     private string          $senderEmail              = '';
     private array           $customSubmitHandlers     = [];
+    private array           $bccEmails                = [];
     /**
      * Constructor.
      *
@@ -233,6 +234,18 @@ class FormAjaxHandler
     }
 
     /**
+     * Set BCC email(s) for outgoing emails.
+     *
+     * @param array $emails The BCC email address(es).
+     * @return self
+     */
+    public function setBccEmails(array $emails): self
+    {
+        $this->bccEmails = $emails;
+        return $this;
+    }
+
+    /**
      * Add a custom submit handler for CRM integrations or other purposes.
      *
      * The callback receives array $data and array $fields and should return a boolean indicating success.
@@ -392,11 +405,12 @@ class FormAjaxHandler
             }
         }
 
-        // Optionally verify reCAPTCHA.
-        if ($this->recaptchaEnabled && ReCaptcha::getInstance()->getSecretKey()) {
+        // Optionally verify reCAPTCHA (skip if not configured).
+        if ($this->recaptchaEnabled && ReCaptcha::getInstance()->isConfigured()) {
             if (!empty($_POST['g-recaptcha-response'])) {
                 $recaptchaResponse = sanitize_text_field(wp_unslash($_POST['g-recaptcha-response']));
-                if (!ReCaptcha::getInstance()->verify($recaptchaResponse)['success']) {
+                $result = ReCaptcha::getInstance()->verify($recaptchaResponse);
+                if (!$result['success']) {
                     $errors['recaptcha'] = 'reCAPTCHA verification failed.';
                 }
             } else {
@@ -501,10 +515,14 @@ class FormAjaxHandler
             add_filter('wp_mail_from_name', $fromNameFilter, 999);
         }
 
-        foreach ($this->receiverEmails ?? [] as $email) {
-            $to      = $email;
-            $headers = ['Content-Type: text/html; charset=UTF-8'];
-            wp_mail($to, $subject, $message, $headers);
+        $headers = ['Content-Type: text/html; charset=UTF-8'];
+
+        foreach ($this->bccEmails as $bccEmail) {
+            $headers[] = 'Bcc: ' . $bccEmail;
+        }
+
+        if (!empty($this->receiverEmails)) {
+            wp_mail($this->receiverEmails, $subject, $message, $headers);
         }
 
         // Remove the filters to avoid affecting other emails
