@@ -8,19 +8,9 @@ use Closure;
  */
 class ComponentRenderService
 {
-    /**
-     * @var string Component name
-     */
-    private string $component;
-
-    /**
-     * @var array HTML attributes
-     */
+    private string $componentName;
+    private string $componentTemplatePath;
     private array $htmlAttributes;
-
-    /**
-     * @var array Component properties
-     */
     private array $props;
 
     private string $componentDomain = 'default';
@@ -28,40 +18,90 @@ class ComponentRenderService
     private static array $domains = [
         'default' => 'source/components',
     ];
+
     public static function defineDomain(string $domain, string $base): void
     {
         self::$domains[$domain] = $base;
     }
 
     /**
-     * Constructor
-     *
-     * @param string $component Name of the component
-     * @param array $htmlAttributes HTML attributes for the component
-     * @param array $props Properties for the component
+     * @deprecated Use fromName() or fromPath() instead
      */
-    public function __construct($component, array $htmlAttributes = [], array $props = [])
+    public function __construct(string $componentRef = '', array $htmlAttributes = [], array $props = [])
     {
-        $isDirectPath = str_ends_with($component, '.php');
-
-        if (!$isDirectPath && strpos($component, '.')) {
-            [
-                $domain,
-                $component
-            ] = explode('.', $component);
-            $this->componentDomain = $domain;
+        if ($componentRef === '') {
+            return; // Internal use by named constructors
         }
 
-        $this->component      = $component;
+        if (str_ends_with($componentRef, '.php')) {
+            $this->componentName = basename($componentRef, '.php');
+            $this->componentTemplatePath = get_template_directory() . '/' . ltrim($componentRef, '/');
+        } else {
+            if (strpos($componentRef, '.')) {
+                [$domain, $componentRef] = explode('.', $componentRef);
+                $this->componentDomain = $domain;
+            }
+            $this->componentName = $componentRef;
+            $this->componentTemplatePath = $this->resolveTemplatePath($componentRef);
+        }
+
+        $this->validateTemplatePath($componentRef);
         $this->htmlAttributes = $htmlAttributes;
         $this->props          = $props;
     }
 
     /**
-     * Process properties that contain closures
-     *
-     * @return array Processed properties
+     * Create from component name with auto-discovery via glob
      */
+    public static function fromName(string $componentName, array $htmlAttributes = [], array $props = []): self
+    {
+        $instance = new self();
+        $instance->componentName = $componentName;
+
+        if (strpos($componentName, '.')) {
+            [$domain, $componentName] = explode('.', $componentName);
+            $instance->componentDomain = $domain;
+            $instance->componentName = $componentName;
+        }
+
+        $instance->componentTemplatePath = $instance->resolveTemplatePath($componentName);
+
+        $instance->validateTemplatePath($componentName);
+        $instance->htmlAttributes = $htmlAttributes;
+        $instance->props          = $props;
+
+        return $instance;
+    }
+
+    /**
+     * Create from explicit name and template path
+     */
+    public static function fromPath(string $componentName, string $componentTemplatePath, array $htmlAttributes = [], array $props = []): self
+    {
+        $instance = new self();
+        $instance->componentName = $componentName;
+        $instance->componentTemplatePath = $componentTemplatePath;
+
+        $instance->validateTemplatePath($componentName);
+        $instance->htmlAttributes = $htmlAttributes;
+        $instance->props          = $props;
+
+        return $instance;
+    }
+
+    private function resolveTemplatePath(string $componentName): string
+    {
+        $pattern = self::$domains[$this->componentDomain] . '/**/' . $componentName . '.php';
+        return getThemeFilePath($pattern) ?: '';
+    }
+
+    private function validateTemplatePath(string $ref): void
+    {
+        if (!$this->componentTemplatePath || !file_exists($this->componentTemplatePath)) {
+            throw new \RuntimeException("Component file '{$ref}' not found");
+        }
+    }
+
     private function processProps(): array
     {
         $processedProps = $this->props;
@@ -77,16 +117,13 @@ class ComponentRenderService
         return $processedProps;
     }
 
-    /**
-     * Render the component
-     */
     public function render(): void
     {
         $props          = $this->processProps();
         $htmlAttributes = $this->htmlAttributes;
-        $component      = $this->component;
+        $componentName  = $this->componentName;
 
-        $htmlAttributes['data-component'] = $component;
+        $htmlAttributes['data-component'] = $componentName;
 
         extract($props);
 
@@ -94,22 +131,7 @@ class ComponentRenderService
             return assembleHtmlAttributes($htmlAttributes, ...$attributes);
         };
 
-        // Resolve component file path
-        if (str_contains($component, '/') || str_ends_with($component, '.php')) {
-            // Direct path: treat as theme-relative path
-            $componentPath = get_template_directory() . '/' . ltrim($component, '/');
-        } else {
-            // Auto-discovery via glob pattern
-            $componentFileName = $component . '.php';
-            $pattern           = self::$domains[$this->componentDomain] . '/**/' . $componentFileName;
-            $componentPath     = getThemeFilePath($pattern);
-        }
-
-        if (!$componentPath || !file_exists($componentPath)) {
-            throw new \RuntimeException("Component file '{$component}' not found");
-        }
-
-        include $componentPath;
+        include $this->componentTemplatePath;
     }
 
 }

@@ -14,8 +14,8 @@ if (!function_exists('component')) {
 
 }
 
-function render_component_template(string $component, array $htmlAttributes = [], array $props = [])
+function render_component_template(string $componentName, string $componentTemplatePath, array $htmlAttributes = [], array $props = [])
 {
-    $processor = new ComponentRenderService($component, $htmlAttributes, $props);
+    $processor = ComponentRenderService::fromPath($componentName, $componentTemplatePath, $htmlAttributes, $props);
     $processor->render();
 }
