@@ -199,6 +199,22 @@ class ReCaptcha extends ThemeModule
                  * Usage:
                  *    const token = await window.getRecaptchaResult();
                  */
+                /**
+                 * Appends reCAPTCHA token to a FormData object.
+                 * Returns a Promise that resolves with the same FormData.
+                 *
+                 * Usage:
+                 *    const formData = await window.populateFormDataWithRecaptcha(formData);
+                 */
+                window.populateFormDataWithRecaptcha = function (formData)
+                {
+                    return window.getRecaptchaResult().then(function (token)
+                    {
+                        formData.append('g-recaptcha-response', token);
+                        return formData;
+                    });
+                };
+
                 window.getRecaptchaResult = function ()
                 {
                     return new Promise(function (resolve, reject)

@@ -405,16 +405,23 @@ class FormAjaxHandler
             }
         }
 
-        // Optionally verify reCAPTCHA (skip if not configured).
-        if ($this->recaptchaEnabled && ReCaptcha::getInstance()->isConfigured()) {
-            if (!empty($_POST['g-recaptcha-response'])) {
-                $recaptchaResponse = sanitize_text_field(wp_unslash($_POST['g-recaptcha-response']));
-                $result = ReCaptcha::getInstance()->verify($recaptchaResponse);
-                if (!$result['success']) {
-                    $errors['recaptcha'] = 'reCAPTCHA verification failed.';
+        // Optionally verify reCAPTCHA (skip if module not initialized or not configured).
+        if ($this->recaptchaEnabled) {
+            try {
+                $recaptcha = ReCaptcha::getInstance();
+                if ($recaptcha->isConfigured()) {
+                    if (!empty($_POST['g-recaptcha-response'])) {
+                        $recaptchaResponse = sanitize_text_field(wp_unslash($_POST['g-recaptcha-response']));
+                        $result = $recaptcha->verify($recaptchaResponse);
+                        if (!$result['success']) {
+                            $errors['recaptcha'] = 'reCAPTCHA verification failed.';
+                        }
+                    } else {
+                        $errors['recaptcha'] = 'reCAPTCHA response missing.';
+                    }
                 }
-            } else {
-                $errors['recaptcha'] = 'reCAPTCHA response missing.';
+            } catch (\Exception $e) {
+                // ReCaptcha module not initialized — skip verification
             }
         }
 

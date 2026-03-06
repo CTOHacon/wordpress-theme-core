@@ -11,7 +11,7 @@ class ThemeModule implements ThemeModuleInterface
     {
     }
 
-    public function init()
+    protected function init()
     {
     }
 

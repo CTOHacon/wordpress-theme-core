@@ -92,14 +92,21 @@ class ComponentRenderService
             return assembleHtmlAttributes($htmlAttributes, ...$attributes);
         };
 
-        // Locate component file via glob pattern using helper
-        $componentFileName = $component . '.php';
-        $pattern           = self::$domains[$this->componentDomain] . '/**/' . $componentFileName;
-        $componentPath     = getThemeFilePath($pattern);
-        if (!$componentPath || !file_exists($componentPath)) {
-            throw new \RuntimeException("Component file '{$componentFileName}' not found in domain '{$this->componentDomain}'");
+        // Resolve component file path
+        if (str_ends_with($component, '.php')) {
+            // Direct path: treat as theme-relative path
+            $componentPath = get_template_directory() . '/' . ltrim($component, '/');
+        } else {
+            // Auto-discovery via glob pattern
+            $componentFileName = $component . '.php';
+            $pattern           = self::$domains[$this->componentDomain] . '/**/' . $componentFileName;
+            $componentPath     = getThemeFilePath($pattern);
         }
-        // Include the located component file
+
+        if (!$componentPath || !file_exists($componentPath)) {
+            throw new \RuntimeException("Component file '{$component}' not found");
+        }
+
         include $componentPath;
     }
 
