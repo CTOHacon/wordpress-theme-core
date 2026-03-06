@@ -80,7 +80,8 @@ class ComponentRenderService
     {
         $instance = new self();
         $instance->componentName = $componentName;
-        $instance->componentTemplatePath = $componentTemplatePath;
+
+        $instance->componentTemplatePath = get_template_directory() . '/' . ltrim($componentTemplatePath, '/');
 
         $instance->validateTemplatePath($componentName);
         $instance->htmlAttributes = $htmlAttributes;
