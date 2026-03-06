@@ -42,7 +42,9 @@ class ComponentRenderService
      */
     public function __construct($component, array $htmlAttributes = [], array $props = [])
     {
-        if (strpos($component, '.')) {
+        $isDirectPath = str_ends_with($component, '.php');
+
+        if (!$isDirectPath && strpos($component, '.')) {
             [
                 $domain,
                 $component
@@ -93,7 +95,7 @@ class ComponentRenderService
         };
 
         // Resolve component file path
-        if (str_ends_with($component, '.php')) {
+        if (str_contains($component, '/') || str_ends_with($component, '.php')) {
             // Direct path: treat as theme-relative path
             $componentPath = get_template_directory() . '/' . ltrim($component, '/');
         } else {
