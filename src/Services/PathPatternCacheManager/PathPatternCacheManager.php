@@ -48,13 +48,24 @@ class PathPatternCacheManager
     private static function getCached(string $pattern): ?array
     {
         $cache = self::loadCache();
-        return $cache[$pattern] ?? null;
+        $entry = $cache[$pattern] ?? null;
+        if ($entry === null) {
+            return null;
+        }
+        $baseDir = get_template_directory();
+        return array_map(fn(string $p) => $baseDir . '/' . $p, $entry);
     }
 
     private static function updateCache(string $pattern, array $paths): void
     {
+        $baseDir  = get_template_directory() . '/';
+        $prefixLen = strlen($baseDir);
+
         $cache           = self::loadCache();
-        $cache[$pattern] = array_values($paths);
+        $cache[$pattern] = array_values(array_map(
+            fn(string $p) => str_starts_with($p, $baseDir) ? substr($p, $prefixLen) : $p,
+            $paths
+        ));
         self::saveCache($cache);
     }
 
